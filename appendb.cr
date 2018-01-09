@@ -13,8 +13,47 @@ enum Status
   NotConnected
 end
 
+class DatabaseReader
+  def initialize(@id : UInt32, @index : Index)
+    @fmt = IO::ByteFormat::LittleEndian
+    @file = File.open("#{Dir.current}/#{@id}.dat", "r")
+  end
+
+  def seek_to(id)
+    offset = @index.find(id)
+    @file.seek(offset, IO::Seek::Set)
+    loop do
+      found = @file.read_bytes(UInt64, @fmt)
+      break if found == id
+      size = @file.read_bytes(UInt16, @fmt)
+      @file.seek(@file.pos + size, IO::Seek::Set)
+    end
+    @file.seek(@file.pos - sizeof(typeof(id)), IO::Seek::Set)
+  end
+
+  def last_id
+    return 0_u64 if @file.size == 0
+    @file.seek(@index.last[1], IO::Seek::Set)
+    loop do
+      id = @file.read_bytes(UInt64, @fmt)
+      size = @file.read_bytes(UInt16, @fmt)
+      return id if @file.pos + size == @file.size
+      @file.seek(@file.pos + size, IO::Seek::Set)
+    end
+  end
+
+  def read_into(io)
+    IO.copy(@file, io)
+  end
+
+  def close
+    @file.close
+  end
+end
+
 class Index
   def initialize(@id : UInt32)
+    @fmt = IO::ByteFormat::LittleEndian
     @density = 10_u16
     @file = File.open("#{Dir.current}/#{@id}.idx", "a+")
     @index = Array(Tuple(UInt64, UInt64)).new
@@ -23,24 +62,31 @@ class Index
       while bytes_read < @file.size
         id = @file.read_bytes(UInt64, @fmt)
         offset = @file.read_bytes(UInt64, @fmt)
-        bytes_read += 16
+        bytes_read += sizeof(typeof(id)) + sizeof(typeof(offset))
         @index << {id, offset}
       end
     end
-    @fmt = IO::ByteFormat::LittleEndian
   end
 
   def find(id)
-    entry = @index.bsearch { |a| a[0] >= id }
-    return entry[1] if entry && entry[0] == id
+    i = @index.bsearch_index { |a| a[0] >= id }
+    return @index[i][1] if i && @index[i][0] == id
+    return @index[i-1][1] if i && i - 1 >= 0
+    return @index[@index.size-1][1] if @index.size > 0
+    return 0_u64
   end
 
   def add(id, offset)
     return if id % @density != 1
     @index.push({id, offset})
+    @file.seek(0, IO::Seek::End)
     @file.write_bytes(id, @fmt)
     @file.write_bytes(offset, @fmt)
     @file.flush
+  end
+
+  def last
+    @index.last? || {0_u64, 0_u64}
   end
 
   def close
@@ -49,53 +95,46 @@ class Index
 end
 
 class Database
-  MAX_INDEX_SIZE = 4_000_000
-
-  getter index
+  @autoinc : UInt64
 
   def initialize(@id : UInt32)
-    @db = File.open("#{Dir.current}/#{@id}.dat", "a+")
-    @fmt = IO::ByteFormat::LittleEndian
-    @index = Deque(Tuple(UInt64, UInt64)).new
-    @autoinc = 0_u64
-    if @db.size > 0
-      @db.seek(-2, IO::Seek::End)
-      size = @db.read_bytes(Int16, @fmt)
-      @db.seek(-size, IO::Seek::Current)
-      @autoinc = @db.read_bytes(UInt64, @fmt)
+    filename = "#{Dir.current}/#{@id}.dat"
+    if !File.exists?(filename)
+      File.touch(filename)
     end
+    @db = File.open(filename, "a+")
+    @fmt = IO::ByteFormat::LittleEndian
+    @index = Index.new(@id)
+    @autoinc = reader.last_id
   end
 
   def append(client)
-    size = client.read_bytes(Int16, @fmt)
+    size = client.read_bytes(UInt16, @fmt)
     @autoinc += 1
-    @index.push({@autoinc, @db.size})
-    if @index.size > MAX_INDEX_SIZE
-      @index.shift
-    end
+    @index.add(@autoinc, @db.size)
     @db.write_bytes(@autoinc, @fmt)
     @db.write_bytes(size, @fmt)
     IO.copy(client, @db, size)
-    @db.write_bytes(size + 12, @fmt)
     @db.flush
     return @autoinc
   end
 
-  def readonly
-    File.open("#{Dir.current}/#{@id}.dat", "r")
+  def reader
+    DatabaseReader.new(@id, @index)
   end
 
   def close
     @db.close
+    @index.close
   end
 end
 
 class Session
-  @readdb : IO
+  @reader : DatabaseReader
 
   def initialize(@db : Database, @client : IO)
     @fmt = IO::ByteFormat::LittleEndian
-    @readdb = @db.readonly
+    @reader = @db.reader
   end
 
   def start
@@ -119,21 +158,9 @@ class Session
 
   private def read
     id = @client.read_bytes(UInt64, @fmt)
-    index_entry = @db.index.bsearch { |a| a[0] >= id }
-    if index_entry && index_entry[0] == id
-      @readdb.seek(index_entry[1], IO::Seek::Set)
-    else
-      @readdb.seek(-2, IO::Seek::End)
-      loop do
-        size = @readdb.read_bytes(Int16, @fmt)
-        @readdb.seek(-size, IO::Seek::Current)
-        break if id == @readdb.read_bytes(UInt64, @fmt)
-        @readdb.seek(-10, IO::Seek::Current)
-      end
-      @readdb.seek(-8, IO::Seek::Current)
-    end
+    @reader.seek_to(id)
     @client.write_bytes(Status::Ok.to_i8)
-    IO.copy(@readdb, @client)
+    @reader.read_into(@client)
     @client.flush
   end
 
@@ -146,8 +173,7 @@ class Session
 
   private def cleanup
     @client.close
-    @db.close
-    @readdb.close
+    @reader.close
   end
 end
 
