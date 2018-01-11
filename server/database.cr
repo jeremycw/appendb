@@ -1,26 +1,18 @@
 class Database
-  @autoinc : UInt64
 
   def initialize(@id : UInt32)
-    filename = "#{Dir.current}/#{@id}.dat"
-    if !File.exists?(filename)
-      File.touch(filename)
-    end
-    @db = File.open(filename, "a+")
     @fmt = IO::ByteFormat::LittleEndian
+    filename = "#{Dir.current}/#{@id}.dat"
+    File.touch(filename) if !File.exists?(filename)
     @index = Index.new(@id)
-    @autoinc = reader.last_id
+    @in = Channel(IO | Nil).new
+    @out = Channel(UInt64).new
+    spawn writer()
   end
 
   def append(client)
-    size = client.read_bytes(UInt16, @fmt)
-    @autoinc += 1
-    @index.add(@autoinc, @db.size)
-    @db.write_bytes(@autoinc, @fmt)
-    @db.write_bytes(size, @fmt)
-    IO.copy(client, @db, size)
-    @db.flush
-    return @autoinc
+    @in.send(client)
+    return @out.receive
   end
 
   def reader
@@ -28,7 +20,32 @@ class Database
   end
 
   def close
-    @db.close
+    @in.send(nil)
     @index.close
+  end
+
+  private def writer()
+    reader = self.reader
+    autoinc = reader.last_id
+    reader.close
+    file = get_consistent_file
+    loop do
+      client = @in.receive
+      break if client.is_a?(Nil)
+      size = client.read_bytes(UInt16, @fmt)
+      autoinc += 1
+      @index.add(autoinc, file.size)
+      file.write_bytes(autoinc, @fmt)
+      file.write_bytes(size, @fmt)
+      IO.copy(client, file, size)
+      file.flush
+      @out.send(autoinc)
+    end
+    file.close
+  end
+
+  private def get_consistent_file
+    filename = "#{Dir.current}/#{@id}.dat"
+    File.open(filename, "a+")
   end
 end
