@@ -34,9 +34,10 @@ class Session
   end
 
   private def create
-    id = @db.append(@client)
+    first, last = @db.append(@client)
     @client.write_bytes(Status::Ok.to_i8, @fmt)
-    @client.write_bytes(id, @fmt)
+    @client.write_bytes(first, @fmt)
+    @client.write_bytes(last, @fmt)
     @client.flush
   end
 

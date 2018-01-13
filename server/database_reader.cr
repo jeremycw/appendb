@@ -1,5 +1,5 @@
 class DatabaseReader
-  def initialize(@id : UInt32, @index : Index)
+  def initialize(@id : UInt32, @index : Index, @cache : Cache)
     @fmt = IO::ByteFormat::LittleEndian
     @file = File.open("#{Dir.current}/#{@id}.dat", "r")
   end
