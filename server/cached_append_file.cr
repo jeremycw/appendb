@@ -1,57 +1,5 @@
-class Cache < IO
-  def initialize(@block_size : UInt32, @max_blocks : UInt32)
-    @pos = 0_i64
-    @storage = Deque(Slice(UInt8)).new
-    @storage << Slice(UInt8).new(@block_size, 0_u8)
-    @size = 0_i64
-  end
-
-  property pos
-  getter size
-
-  def seek(offset : Int64, whence : IO::Seek = IO::Seek::Set)
-    case whence
-    when .set?
-      @pos = offset
-    when .end?
-      @pos = @size + offset
-    when .current?
-      @pos += offset
-    end
-  end
-
-  def write(slice : Bytes)
-    slice.each do |b|
-      i = @pos / @block_size
-      if i >= @storage.size
-        if @storage.size >= @max_blocks
-          @storage.rotate!
-        else
-          @storage << Slice(UInt8).new(@block_size.to_i32, 0_u8)
-        end
-      end
-      block = @storage[i]
-      block[@pos % @block_size] = b
-      @pos += 1
-    end
-    @size += slice.size
-    nil
-  end
-
-  def read(slice : Bytes)
-    idx = 0
-    slice.size.times do
-      raise IO::EOFError.new if @pos >= @size
-      i = @pos / @block_size
-      block = @storage[i]
-      slice[idx] = block[@pos % @block_size]
-      @pos += 1
-      idx += 1
-    end
-    slice.size
-  end
-
-end
+#require "./caches/slab_ring_buffer.cr"
+#require "./caches/ring_buffer.cr"
 
 class CachedFile < IO
 
@@ -65,7 +13,8 @@ class CachedFile < IO
   end
 
   protected def initialize(@file : File, @cache_max_size : UInt64)
-    @cache = IO::Memory.new
+    slab_size = 2048 * 1024
+    @cache = IO::Memory.new #SlabRingBuffer.new(slab_size, (@cache_max_size / slab_size).to_i32)
     @cache_offset = @file.size
   end
 
@@ -81,8 +30,9 @@ class CachedFile < IO
   def read(slice : Bytes)
     if @file.pos >= @cache_offset
       @cache.seek(@file.pos - @cache_offset)
-      @file.pos += slice.size
-      return @cache.read(slice)
+      read = @cache.read(slice)
+      @file.pos += read
+      return read
     else
       return @file.read(slice)
     end
