@@ -29,6 +29,7 @@ class Session
     id = @client.read_bytes(UInt64, @fmt)
     @reader.seek_to(id)
     @client.write_bytes(Status::Ok.to_i8)
+    @client.write_bytes(@reader.bytes_until_eof.to_u32, @fmt)
     @reader.read_into(@client)
     @client.flush
   end

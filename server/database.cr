@@ -1,13 +1,16 @@
 class Database
 
-  def initialize(@id : UInt32)
+  @file : CachedFile
+
+  def initialize(id)
     @fmt = IO::ByteFormat::LittleEndian
-    filename = "#{Dir.current}/#{@id}.dat"
-    File.touch(filename) if !File.exists?(filename)
-    @index = Index.new(@id)
+    path = "#{Dir.current}/#{id}.dat"
+    File.touch(path) if !File.exists?(path)
+    @index = Index.new(id)
     @in = Channel(IO?).new
     @out = Channel(Tuple(UInt64, UInt64)).new
-    spawn writer()
+    @file = get_consistent_file(path)
+    spawn writer(@file)
   end
 
   def append(client)
@@ -16,7 +19,7 @@ class Database
   end
 
   def reader
-    DatabaseReader.new(@id, @index)
+    DatabaseReader.new(@file.readonly_copy, @index)
   end
 
   def close
@@ -24,8 +27,7 @@ class Database
     @index.close
   end
 
-  private def writer()
-    file = get_consistent_file
+  private def writer(file)
     reader = self.reader
     id = reader.last_id
     reader.close
@@ -57,9 +59,8 @@ class Database
     file.close
   end
 
-  private def get_consistent_file
-    filename = "#{Dir.current}/#{@id}.dat"
-    file = File.open(filename, "a+")
+  private def get_consistent_file(path)
+    file = CachedFile.open(path)
     return file if file.size == 0
     file.seek(@index.last[1], IO::Seek::Set)
     loop do

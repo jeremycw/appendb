@@ -2,6 +2,7 @@ require "socket"
 require "./database.cr"
 require "./index.cr"
 require "./database_reader.cr"
+require "./cached_append_file.cr"
 require "./session.cr"
 require "../commands.cr"
 

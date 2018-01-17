@@ -1,7 +1,6 @@
 class DatabaseReader
-  def initialize(@id : UInt32, @index : Index, @cache : Cache)
+  def initialize(@file : CachedFile, @index : Index)
     @fmt = IO::ByteFormat::LittleEndian
-    @file = File.open("#{Dir.current}/#{@id}.dat", "r")
   end
 
   def seek_to(id)
@@ -25,6 +24,10 @@ class DatabaseReader
       return id if @file.pos + size == @file.size
       @file.seek(@file.pos + size, IO::Seek::Set)
     end
+  end
+
+  def bytes_until_eof
+    @file.size - @file.pos
   end
 
   def read_into(io)
