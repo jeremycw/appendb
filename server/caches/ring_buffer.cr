@@ -13,14 +13,14 @@ class RingBuffer < IO
     @pos = value
   end
 
-  def seek(offset : Int64, whence : IO::Seek = IO::Seek::Set)
+  def seek(offset, whence : IO::Seek = IO::Seek::Set)
     case whence
     when .set?
-      @pos = offset
+      @pos = offset.to_i64
     when .end?
-      @pos = @size + offset
+      @pos = @size + offset.to_i64
     when .current?
-      @pos += offset
+      @pos += offset.to_i64
     end
   end
 
@@ -41,7 +41,7 @@ class RingBuffer < IO
   def read(slice : Bytes)
     idx = 0
     slice.size.times do
-      raise IO::EOFError.new if @pos >= @size
+      return idx if @pos >= @size
       slice[idx] = @storage[@pos % @buffer_size]
       @pos += 1
       idx += 1

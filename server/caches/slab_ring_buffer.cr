@@ -9,14 +9,14 @@ class SlabRingBuffer < IO
   property pos
   getter size
 
-  def seek(offset : Int64, whence : IO::Seek = IO::Seek::Set)
+  def seek(offset, whence : IO::Seek = IO::Seek::Set)
     case whence
     when .set?
-      @pos = offset
+      @pos = offset.to_i64
     when .end?
-      @pos = @size + offset
+      @pos = @size + offset.to_i64
     when .current?
-      @pos += offset
+      @pos += offset.to_i64
     end
   end
 
@@ -27,7 +27,7 @@ class SlabRingBuffer < IO
         if @storage.size >= @max_slabs
           @storage.rotate!
         else
-          @storage << Slice(UInt8).new(@slab_size.to_i32, 0_u8)
+          @storage << Slice(UInt8).new(@slab_size, 0_u8)
         end
       end
       slab = @storage[i]
