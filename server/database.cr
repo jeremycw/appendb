@@ -34,7 +34,9 @@ class Database
     loop do
       client = @in.receive
       break if client.nil?
-      pos = file.pos
+      rollback_pos = file.size
+      rollback_id = id
+      @index.mark_rollback
       begin
         count = client.read_bytes(UInt16, @fmt)
         written = 0
@@ -45,14 +47,16 @@ class Database
           @index.add(id, file.size + written)
           file.write_bytes(id, @fmt)
           file.write_bytes(size, @fmt)
-          written += size + sizeof(typeof(id))
+          written += size + sizeof(typeof(id)) + sizeof(typeof(size))
           IO.copy(client, file, size)
         end
         file.flush
         @out.send({first, id})
-      rescue
-        id -= 1
-        file.truncate(pos)
+      rescue e
+        puts e.inspect_with_backtrace
+        id = rollback_id
+        file.truncate(rollback_pos)
+        @index.rollback!
         @out.send({0_u64, 0_u64})
       end
     end
@@ -66,7 +70,6 @@ class Database
     loop do
       pos = file.pos
       begin
-        file.read_bytes(UInt64, @fmt)
         size = file.read_bytes(UInt16, @fmt)
         return file if file.pos + size == file.size
         file.seek(file.pos + size, IO::Seek::Set)

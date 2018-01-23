@@ -1,4 +1,3 @@
-require "./caches/slab_ring_buffer.cr"
 require "./caches/ring_buffer.cr"
 
 class CachedFile < IO
@@ -17,29 +16,23 @@ class CachedFile < IO
     @cache_offset = @file.size
   end
 
-  protected def initialize(@file : File, @cache_max_size : UInt64, @cache : IO, @cache_offset : UInt64)
+  protected def initialize(@file : File, @cache_max_size : UInt64, @cache : Cache, @cache_offset : UInt64)
   end
 
   def write(slice : Bytes)
-    STDOUT.puts "writing"
     @cache.seek(0, IO::Seek::End)
     @cache.write(slice)
     @file.write(slice)
   end
 
   def read(slice : Bytes)
-    STDOUT.puts "reading: #{@file.pos}, #{@cache_offset}"
-    if @file.pos >= @cache_offset
-      STDOUT.puts "read attempt"
+    if @file.pos >= @cache.tail + @cache_offset
       @cache.seek(@file.pos - @cache_offset)
       read = @cache.read(slice)
-      STDOUT.puts "read: #{read}"
       @file.pos += read
       return read
     else
-      STDOUT.puts "fread attempt"
       read = @file.read(slice)
-      STDOUT.puts "fread: #{read}"
       return read
     end
   end

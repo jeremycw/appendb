@@ -8,7 +8,8 @@ class Session
 
   def start
     loop do
-      cmd = @client.read_bytes(Int8, @fmt)
+      cmd = @client.read_bytes(Int8, @fmt) rescue nil
+      break if cmd.nil?
       cmd = Commands.from_value(cmd)
       case cmd
       when .read?
@@ -20,7 +21,6 @@ class Session
         break
       end
     end
-  rescue IO::EOFError
   ensure
     cleanup
   end

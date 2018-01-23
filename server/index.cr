@@ -2,6 +2,8 @@ require "./indexes/compressed_sparse_index.cr"
 require "./indexes/simple_array_index.cr"
 
 class Index
+  @rollback_pos : UInt64
+
   def initialize(id)
     @fmt = IO::ByteFormat::LittleEndian
     @file = File.open("#{Dir.current}/#{id}.idx", "a+")
@@ -16,6 +18,7 @@ class Index
         id += 1
       end
     end
+    @rollback_pos = @file.size
   end
 
   def find(id)
@@ -28,8 +31,18 @@ class Index
     @file.flush
   end
 
+  def mark_rollback
+    @rollback_pos = @file.size
+  end
+
+  def rollback!
+    @file.truncate(@rollback_pos)
+  end
+
   def last
-    @index.last
+    @file.seek(-8, IO::Seek::End)
+    offset = @file.read_bytes(UInt64, @fmt)
+    {@file.size / 8, offset}
   end
 
   def close

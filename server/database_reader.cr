@@ -17,13 +17,7 @@ class DatabaseReader
 
   def last_id
     return 0_u64 if @file.size == 0
-    @file.seek(@index.last[1], IO::Seek::Set)
-    loop do
-      id = @file.read_bytes(UInt64, @fmt)
-      size = @file.read_bytes(UInt16, @fmt)
-      return id if @file.pos + size == @file.size
-      @file.seek(@file.pos + size, IO::Seek::Set)
-    end
+    @index.last[0]
   end
 
   def bytes_until_eof

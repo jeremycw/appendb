@@ -1,4 +1,6 @@
-class RingBuffer < IO
+require "./cache.cr"
+
+class RingBuffer < Cache
   def initialize(@buffer_size : Int32)
     @storage = Slice(UInt8).new(@buffer_size, 0_u8)
     @pos = 0_i64
@@ -33,11 +35,6 @@ class RingBuffer < IO
     nil
   end
 
-  def tail
-    tmp = @pos - @buffer_size
-    tmp > 0 ? tmp : 0
-  end
-
   def read(slice : Bytes)
     idx = 0
     slice.size.times do
@@ -47,6 +44,11 @@ class RingBuffer < IO
       idx += 1
     end
     slice.size
+  end
+
+  def tail
+    tmp = @size - @buffer_size
+    tmp > 0 ? tmp : 0
   end
 
 end
