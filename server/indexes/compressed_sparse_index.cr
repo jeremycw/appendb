@@ -26,6 +26,23 @@ class CompressedSparseIndex
     return find_in(id, @a8x8)
   end
 
+  def truncate(id)
+    i = @a4x4.bsearch_index { |a| a[0] >= id }
+    if i
+      @a4x4.truncate(i)
+      @a4x8.truncate(0)
+      @a8x8.truncate(0)
+    end
+    i = @a4x8.bsearch_index { |a| a[0] >= id }
+    if i
+      @a4x8.truncate(i)
+      @a8x8.truncate(0)
+    end
+    i = @a8x8.bsearch_index { |a| a[0] >= id }
+    @a4x8.truncate(i) if i
+    nil
+  end
+
   def last
     last = @a4x8.last?
     return last if !last.nil?
